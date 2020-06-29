@@ -288,7 +288,8 @@ func goschedguarded() {
 // Do not re-use reasons, add new ones.
 func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int) {
 	if reason != waitReasonSleep {
-		checkTimeouts() // timeouts may expire while two goroutines keep the scheduler busy
+		checkTimeouts() // time
+		// outs may expire while two goroutines keep the scheduler busy
 	}
 	mp := acquirem()
 	gp := mp.curg
