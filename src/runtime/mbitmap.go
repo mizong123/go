@@ -93,6 +93,7 @@ const (
 )
 
 // addb returns the byte pointer p+n.
+// 返回p+n
 //go:nowritebarrier
 //go:nosplit
 func addb(p *byte, n uintptr) *byte {
@@ -603,7 +604,8 @@ func (h heapBits) setCheckmarked(size uintptr) {
 // by checking typ.ptrdata.
 //
 // Callers must perform cgo checks if writeBarrier.cgo.
-//
+// 为内存地址在[src, src+size)中的指针开启写屏障，在memmove之前是必须调用的。
+// 作为一种特殊情况，src == 0 代表执行 memclr
 //go:nosplit
 func bulkBarrierPreWrite(dst, src, size uintptr) {
 	if (dst|src|size)&(sys.PtrSize-1) != 0 {

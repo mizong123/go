@@ -31,6 +31,8 @@ func getg() *g
 // This must NOT be go:noescape: if fn is a stack-allocated closure,
 // fn puts g on a run queue, and g executes before fn returns, the
 // closure will be invalidated while it is still executing.
+// 切换至g0执行func
+// mcall会保存当前g的sp和pc至gobuf中以便后续恢复
 func mcall(fn func(*g))
 
 // systemstack runs fn on a system stack.
@@ -50,6 +52,7 @@ func mcall(fn func(*g))
 //	})
 //	... use x ...
 //
+// 在系统栈上运行fn,如果当前处于用户栈，则切换至系统栈运行后切回原先的用户栈
 //go:noescape
 func systemstack(fn func())
 
@@ -94,6 +97,7 @@ func reflect_memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr) {
 //
 // Implementations are in memmove_*.s.
 //
+// 将from拷贝至to（原子操作）
 //go:noescape
 func memmove(to, from unsafe.Pointer, n uintptr)
 

@@ -342,6 +342,10 @@ type gobuf struct {
 //
 // sudogs are allocated from a special pool. Use acquireSudog and
 // releaseSudog to allocate and free them.
+
+// sudog 是对处于等待队列中的g的抽象
+// sudog 是必要的因为一个g可能会处于多个等待队列中
+// sudog 有自己独特的内存分配池
 type sudog struct {
 	// The following fields are protected by the hchan.lock of the
 	// channel this sudog is blocking on. shrinkstack depends on
@@ -351,6 +355,7 @@ type sudog struct {
 
 	next *sudog
 	prev *sudog
+	// 元素地址
 	elem unsafe.Pointer // data element (may point to stack)
 
 	// The following fields are never accessed concurrently.
@@ -652,7 +657,7 @@ type p struct {
 	gcw gcWork
 
 	// wbBuf is this P's GC write barrier buffer.
-	//
+	// P的写屏障buffer
 	// TODO: Consider caching this in the running G.
 	wbBuf wbBuf
 
@@ -691,6 +696,7 @@ type p struct {
 	pad cpu.CacheLinePad
 }
 
+// 全局的调度器
 type schedt struct {
 	// accessed atomically. keep at top to ensure alignment on 32-bit systems.
 	goidgen   uint64

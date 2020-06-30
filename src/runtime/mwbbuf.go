@@ -147,6 +147,7 @@ func (b *wbBuf) empty() bool {
 //
 //go:nowritebarrierrec
 //go:nosplit
+// 将old和new加入写屏障，如果需要flush返回false
 func (b *wbBuf) putFast(old, new uintptr) bool {
 	p := (*[2]uintptr)(unsafe.Pointer(b.next))
 	p[0] = old

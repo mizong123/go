@@ -286,6 +286,7 @@ func goschedguarded() {
 // It is displayed in stack traces and heap dumps.
 // Reasons should be unique and descriptive.
 // Do not re-use reasons, add new ones.
+// unlockf - 保证解锁时的安全的函数 ??
 func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int) {
 	if reason != waitReasonSleep {
 		checkTimeouts() // time // outs may expire while two goroutines keep the scheduler busy
@@ -673,6 +674,7 @@ func fastrandinit() {
 }
 
 // Mark gp ready to run.
+// 标记g为可运行状态
 func ready(gp *g, traceskip int, next bool) {
 	if trace.enabled {
 		traceGoUnpark(gp, traceskip)
@@ -690,6 +692,7 @@ func ready(gp *g, traceskip int, next bool) {
 
 	// status is Gwaiting or Gscanwaiting, make Grunnable and put on runq
 	casgstatus(gp, _Gwaiting, _Grunnable)
+	// 将g放入可运行队列
 	runqput(_g_.m.p.ptr(), gp, next)
 	wakep()
 	releasem(mp)
@@ -5090,6 +5093,10 @@ const randomizeScheduler = raceenabled
 // If next is true, runqput puts g in the _p_.runnext slot.
 // If the run queue is full, runnext puts g on the global queue.
 // Executed only by the owner P.
+// 将g放入可运行队列：
+// 如果next为true g会被放入p.runnext
+// 如果next为false g会被放入p.runqueue tail
+// 为run queue为空 会被放入全局队列
 func runqput(_p_ *p, gp *g, next bool) {
 	if randomizeScheduler && next && fastrand()%2 == 0 {
 		next = false
@@ -5097,6 +5104,7 @@ func runqput(_p_ *p, gp *g, next bool) {
 
 	if next {
 	retryNext:
+		// 替换老的nextg为新的nextg
 		oldnext := _p_.runnext
 		if !_p_.runnext.cas(oldnext, guintptr(unsafe.Pointer(gp))) {
 			goto retryNext
@@ -5105,17 +5113,21 @@ func runqput(_p_ *p, gp *g, next bool) {
 			return
 		}
 		// Kick the old runnext out to the regular run queue.
+		// 获取旧的nextg 以便后续移动它
 		gp = oldnext.ptr()
 	}
 
 retry:
 	h := atomic.LoadAcq(&_p_.runqhead) // load-acquire, synchronize with consumers
 	t := _p_.runqtail
+	// 如果当前p的可运行g队列还有空闲空间
 	if t-h < uint32(len(_p_.runq)) {
 		_p_.runq[t%uint32(len(_p_.runq))].set(gp)
+		// 放至队尾
 		atomic.StoreRel(&_p_.runqtail, t+1) // store-release, makes the item available for consumption
 		return
 	}
+	// 如果当前p的可运行g队列没有空闲空间了
 	if runqputslow(_p_, gp, h, t) {
 		return
 	}
@@ -5125,6 +5137,8 @@ retry:
 
 // Put g and a batch of work from local runnable queue on global queue.
 // Executed only by the owner P.
+// 由g的所有者p将g从本地队列放入全局队列
+// h - head t - tail
 func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	var batch [len(_p_.runq)/2 + 1]*g
 
@@ -5134,6 +5148,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	if n != uint32(len(_p_.runq)/2) {
 		throw("runqputslow: queue is not full")
 	}
+	// batch - p的后一半g + gp
 	for i := uint32(0); i < n; i++ {
 		batch[i] = _p_.runq[(h+i)%uint32(len(_p_.runq))].ptr()
 	}
@@ -5150,6 +5165,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	}
 
 	// Link the goroutines.
+	// 链接所有的G
 	for i := uint32(0); i < n; i++ {
 		batch[i].schedlink.set(batch[i+1])
 	}
@@ -5158,6 +5174,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	q.tail.set(batch[n])
 
 	// Now put the batch on global queue.
+	// 将链接之后的G加入全局队列
 	lock(&sched.lock)
 	globrunqputbatch(&q, int32(n+1))
 	unlock(&sched.lock)

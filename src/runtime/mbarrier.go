@@ -314,10 +314,11 @@ func reflect_typedslicecopy(elemType *_type, dst, src slice) int {
 //
 // If the caller knows that typ has pointers, it can alternatively
 // call memclrHasPointers.
-//
+// 清除pointer指针位置 type大小的内存
 //go:nosplit
 func typedmemclr(typ *_type, ptr unsafe.Pointer) {
 	if writeBarrier.needed && typ.ptrdata != 0 {
+
 		bulkBarrierPreWrite(uintptr(ptr), 0, typ.ptrdata)
 	}
 	memclrNoHeapPointers(ptr, typ.size)
