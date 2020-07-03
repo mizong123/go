@@ -329,6 +329,7 @@ havespan:
 //
 // s must have a span class corresponding to this
 // mcentral and it must not be empty.
+// 将span返还给mcentral
 func (c *mcentral) uncacheSpan(s *mspan) {
 	if !go115NewMCentralImpl {
 		c.oldUncacheSpan(s)

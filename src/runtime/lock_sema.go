@@ -44,6 +44,7 @@ func lock2(l *mutex) {
 	gp.m.locks++
 
 	// Speculative grab for lock.
+	// 快速获取锁（减小无竞争条件时候的开销）
 	if atomic.Casuintptr(&l.key, 0, locked) {
 		return
 	}
@@ -74,6 +75,7 @@ Loop:
 			// l->waitm points to a linked list of M's waiting
 			// for this lock, chained through m->nextwaitm.
 			// Queue this M.
+			// 将当前M加入lock的等待M队列中
 			for {
 				gp.m.nextwaitm = muintptr(v &^ locked)
 				if atomic.Casuintptr(&l.key, v, uintptr(unsafe.Pointer(gp.m))|locked) {

@@ -18,6 +18,7 @@ var (
 
 	netpollBreakRd, netpollBreakWr uintptr // for netpollBreak
 
+	// 用于避免对netpollbreak的重复
 	netpollWakeSig uint32 // used to avoid duplicate calls of netpollBreak
 )
 

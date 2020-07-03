@@ -31,6 +31,7 @@ func itabHashFunc(inter *interfacetype, typ *_type) uintptr {
 }
 
 func getitab(inter *interfacetype, typ *_type, canfail bool) *itab {
+	// 内部错误
 	if len(inter.mhdr) == 0 {
 		throw("internal error - misuse of itab")
 	}
@@ -50,6 +51,7 @@ func getitab(inter *interfacetype, typ *_type, canfail bool) *itab {
 	// This is by far the most common case, so do it without locks.
 	// Use atomic to ensure we see any previous writes done by the thread
 	// that updates the itabTable field (with atomic.Storep in itabAdd).
+	// 在itab table中查找interface/type组合
 	t := (*itabTableType)(atomic.Loadp(unsafe.Pointer(&itabTable)))
 	if m = t.find(inter, typ); m != nil {
 		goto finish
@@ -63,6 +65,7 @@ func getitab(inter *interfacetype, typ *_type, canfail bool) *itab {
 	}
 
 	// Entry doesn't exist yet. Make a new entry & add it.
+	// 不存在 interface/type entry,在堆外分配
 	m = (*itab)(persistentalloc(unsafe.Sizeof(itab{})+uintptr(len(inter.mhdr)-1)*sys.PtrSize, 0, &memstats.other_sys))
 	m.inter = inter
 	m._type = typ
@@ -93,6 +96,7 @@ finish:
 
 // find finds the given interface/type pair in t.
 // Returns nil if the given interface/type pair isn't present.
+// 在itab table中查找interface/type组合
 func (t *itabTableType) find(inter *interfacetype, typ *_type) *itab {
 	// Implemented using quadratic probing.
 	// Probe sequence is h(i) = h0 + i*(i+1)/2 mod 2^k.
@@ -118,6 +122,7 @@ func (t *itabTableType) find(inter *interfacetype, typ *_type) *itab {
 
 // itabAdd adds the given itab to the itab hash table.
 // itabLock must be held.
+// 将一个itab加入table
 func itabAdd(m *itab) {
 	// Bugs can lead to calling this while mallocing is set,
 	// typically because this is called while panicing.
@@ -129,6 +134,7 @@ func itabAdd(m *itab) {
 
 	t := itabTable
 	if t.count >= 3*(t.size/4) { // 75% load factor
+		// 负载因子达到百分之75进行扩容2倍处理
 		// Grow hash table.
 		// t2 = new(itabTableType) + some additional entries
 		// We lie and tell malloc we want pointer-free memory because
@@ -140,6 +146,7 @@ func itabAdd(m *itab) {
 		// Note: while copying, other threads may look for an itab and
 		// fail to find it. That's ok, they will then try to get the itab lock
 		// and as a consequence wait until this copying is complete.
+		// 迁移
 		iterate_itabs(t2.add)
 		if t2.count != t.count {
 			throw("mismatched count during itab table copy")
@@ -155,6 +162,7 @@ func itabAdd(m *itab) {
 
 // add adds the given itab to itab table t.
 // itabLock must be held.
+// 添加entry至table
 func (t *itabTableType) add(m *itab) {
 	// See comment in find about the probe sequence.
 	// Insert new itab in the first empty spot in the probe sequence.
@@ -188,6 +196,7 @@ func (t *itabTableType) add(m *itab) {
 // the m.inter/m._type pair. If the type does not implement the interface,
 // it sets m.fun[0] to 0 and returns the name of an interface function that is missing.
 // It is ok to call this multiple times on the same m, even concurrently.
+// 初始化并检查改type是否实现interface
 func (m *itab) init() string {
 	inter := m.inter
 	typ := m._type
@@ -257,12 +266,14 @@ func itabsinit() {
 // have = the dynamic type we have.
 // want = the static type we're trying to convert to.
 // iface = the static type we're converting from.
+// 接口类型断言失败
 func panicdottypeE(have, want, iface *_type) {
 	panic(&TypeAssertionError{iface, have, want, ""})
 }
 
 // panicdottypeI is called when doing an i.(T) conversion and the conversion fails.
 // Same args as panicdottypeE, but "have" is the dynamic itab we have.
+// 接口类型断言失败
 func panicdottypeI(have *itab, want, iface *_type) {
 	var t *_type
 	if have != nil {

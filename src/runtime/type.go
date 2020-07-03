@@ -134,6 +134,7 @@ func (t *_type) name() string {
 // available. This is not the same as the reflect package's PkgPath
 // method, in that it returns the package path for struct and interface
 // types, not just named types.
+// 返回类型定义的包路径
 func (t *_type) pkgpath() string {
 	if u := t.uncommon(); u != nil {
 		return t.nameOff(u.pkgpath).name()

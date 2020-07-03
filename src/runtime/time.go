@@ -637,6 +637,8 @@ func moveTimers(pp *p, timers []*timer) {
 // the correct place in the heap. While looking for those timers,
 // it also moves timers that have been modified to run later,
 // and removes deleted timers. The caller must have locked the timers for pp.
+// 调整timer 将被就修改为更早执行的timer 被修改为更晚执行 和被移除的timer调整到正确的位置或者删除他们
+// todo blackbox for now
 func adjusttimers(pp *p) {
 	if len(pp.timers) == 0 {
 		return
@@ -723,6 +725,7 @@ func addAdjustedTimers(pp *p, moved []*timer) {
 // to be moved earlier, it conservatively returns the current time.
 // The netpoller M will wake up and adjust timers before sleeping again.
 //go:nowritebarrierrec
+// 查看当前p的timers并返回我们需要唤醒netpoller的时间
 func nobarrierWakeTime(pp *p) int64 {
 	if atomic.Load(&pp.adjustTimers) > 0 {
 		return nanotime()
@@ -738,6 +741,9 @@ func nobarrierWakeTime(pp *p) int64 {
 // The caller must have locked the timers for pp.
 // If a timer is run, this will temporarily unlock the timers.
 //go:systemstack
+// 如果第一个timer可以运行了则运行它
+// 当运行了一个timer返回0，如果没有更多的timer返回-1 或者返回第一个timer应该运行的时间
+// todo blackbox for now
 func runtimer(pp *p, now int64) int64 {
 	for {
 		t := pp.timers[0]

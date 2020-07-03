@@ -14,10 +14,12 @@ type Error interface {
 	// serves to distinguish types that are run time
 	// errors from ordinary errors: a type is a
 	// run time error if it has a RuntimeError method.
+	// 用于区分是普通的错误还是运行时错误
 	RuntimeError()
 }
 
 // A TypeAssertionError explains a failed type assertion.
+// 类型断言错误
 type TypeAssertionError struct {
 	_interface    *_type
 	concrete      *_type
@@ -27,6 +29,7 @@ type TypeAssertionError struct {
 
 func (*TypeAssertionError) RuntimeError() {}
 
+// 类型断言错误的实现
 func (e *TypeAssertionError) Error() string {
 	inter := "interface"
 	if e._interface != nil {
@@ -89,6 +92,7 @@ func (e plainError) Error() string {
 }
 
 // A boundsError represents an indexing or slicing operation gone wrong.
+// 操作切片时索引的错误
 type boundsError struct {
 	x int64
 	y int

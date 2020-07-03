@@ -346,6 +346,7 @@ const preemptMSupported = true
 // marked for preemption and the goroutine is at an asynchronous
 // safe-point, it will preempt the goroutine. It always atomically
 // increments mp.preemptGen after handling a preemption request.
+// 抢占单个M，如果正在运行的G或者P被标记为可抢占的并且G正在一个安全点，它会抢占当前G（通过发送信号）
 func preemptM(mp *m) {
 	if GOOS == "darwin" && GOARCH == "arm64" && !iscgo {
 		// On darwin, we use libc calls, and cgo is required on ARM64
@@ -357,12 +358,14 @@ func preemptM(mp *m) {
 		// required).
 		return
 	}
+	// 控制并发
 	if atomic.Cas(&mp.signalPending, 0, 1) {
 		// If multiple threads are preempting the same M, it may send many
 		// signals to the same M such that it hardly make progress, causing
 		// live-lock problem. Apparently this could happen on darwin. See
 		// issue #37741.
 		// Only send a signal if there isn't already one pending.
+		// 发送信号 -> pthread_kill
 		signalM(mp, sigPreempt)
 	}
 }

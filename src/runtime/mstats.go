@@ -146,24 +146,26 @@ type mstats struct {
 
 var memstats mstats
 
+// 内存分配器的统计
 // A MemStats records statistics about the memory allocator.
 type MemStats struct {
 	// General statistics.
 
 	// Alloc is bytes of allocated heap objects.
-	//
+	// 给堆上对象分配的内存大小
 	// This is the same as HeapAlloc (see below).
+
 	Alloc uint64
 
 	// TotalAlloc is cumulative bytes allocated for heap objects.
-	//
+	// 给堆上对象分配的内存大小 （累计）
 	// TotalAlloc increases as heap objects are allocated, but
 	// unlike Alloc and HeapAlloc, it does not decrease when
 	// objects are freed.
 	TotalAlloc uint64
 
 	// Sys is the total bytes of memory obtained from the OS.
-	//
+	// 从操作系统获取的内存大小
 	// Sys is the sum of the XSys fields below. Sys measures the
 	// virtual address space reserved by the Go runtime for the
 	// heap, stacks, and other internal data structures. It's
@@ -180,9 +182,11 @@ type MemStats struct {
 
 	// Mallocs is the cumulative count of heap objects allocated.
 	// The number of live objects is Mallocs - Frees.
+	// 已经分配的对象的累计个数
 	Mallocs uint64
 
 	// Frees is the cumulative count of heap objects freed.
+	// 已经释放的堆对象的个数
 	Frees uint64
 
 	// Heap memory statistics.
@@ -512,6 +516,7 @@ func readGCStats_m(pauses *[]uint64) {
 }
 
 //go:nowritebarrier
+// 将空闲内存从mcache中flush回mcentral中并更新内存stat
 func updatememstats() {
 	// Flush mcaches to mcentral before doing anything else.
 	//
@@ -544,10 +549,12 @@ func updatememstats() {
 	}
 
 	// Aggregate local stats.
+	// 汇总所有的stat
 	cachestats()
 
 	// Collect allocation stats. This is safe and consistent
 	// because the world is stopped.
+	// 收集并计算
 	var smallFree, totalAlloc, totalFree uint64
 	// Collect per-spanclass stats.
 	for spc := range mheap_.central {
@@ -606,6 +613,7 @@ func cachestats() {
 // The world must be stopped.
 //
 //go:nowritebarrier
+// stw时将所有mcache刷新回mcentral
 func flushmcache(i int) {
 	p := allp[i]
 	c := p.mcache
@@ -621,6 +629,7 @@ func flushmcache(i int) {
 // The world must be stopped.
 //
 //go:nowritebarrier
+// 将所有的mcache的内存flush回mcentral
 func flushallmcaches() {
 	for i := 0; i < int(gomaxprocs); i++ {
 		flushmcache(i)

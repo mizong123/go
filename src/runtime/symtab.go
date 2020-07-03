@@ -339,6 +339,8 @@ const (
 // matched changes to the code in cmd/internal/ld/symtab.go:symtab.
 // moduledata is stored in statically allocated non-pointer memory;
 // none of the pointers here are visible to the garbage collector.
+// moduledata 记录有关可执行映像布局的信息。它由链接器编写。
+// 分配在一块静态内存中，对gc不可见
 type moduledata struct {
 	pclntable    []byte
 	ftab         []functab

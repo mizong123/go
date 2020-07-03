@@ -155,6 +155,7 @@ func (c *mcache) refill(spc spanClass) {
 	c.alloc[spc] = s
 }
 
+// 返还内存交由mcentral
 func (c *mcache) releaseAll() {
 	for i := range c.alloc {
 		s := c.alloc[i]

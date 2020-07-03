@@ -159,6 +159,7 @@ const (
 // but on the contention path they sleep in the kernel.
 // A zeroed Mutex is unlocked (no need to initialize each lock).
 // Initialization is helpful for static lock ranking, but not required.
+// 互斥锁，在无竞争的时候和自旋一样快，但是在有竞争的情况下会导致在内核中的睡眠
 type mutex struct {
 	// Empty struct if lock ranking is disabled, otherwise includes the lock rank
 	lockRankStruct
@@ -492,24 +493,26 @@ type m struct {
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
-	procid        uint64       // for debuggers, but offset not hard-coded
-	gsignal       *g           // signal-handling g
-	goSigStack    gsignalStack // Go-allocated signal handling stack
-	sigmask       sigset       // storage for saved signal mask
-	tls           [6]uintptr   // thread-local storage (for x86 extern register)
-	mstartfn      func()
-	curg          *g       // current running goroutine
-	caughtsig     guintptr // goroutine running during fatal signal
-	p             puintptr // attached p for executing go code (nil if not executing go code)
-	nextp         puintptr
-	oldp          puintptr // the p that was attached before executing a syscall
-	id            int64
-	mallocing     int32
-	throwing      int32
-	preemptoff    string // if != "", keep curg running on this m
-	locks         int32
-	dying         int32
-	profilehz     int32
+	procid     uint64       // for debuggers, but offset not hard-coded
+	gsignal    *g           // signal-handling g
+	goSigStack gsignalStack // Go-allocated signal handling stack
+	sigmask    sigset       // storage for saved signal mask
+	tls        [6]uintptr   // thread-local storage (for x86 extern register)
+	// m初始化方法
+	mstartfn   func()
+	curg       *g       // current running goroutine
+	caughtsig  guintptr // goroutine running during fatal signal
+	p          puintptr // attached p for executing go code (nil if not executing go code)
+	nextp      puintptr
+	oldp       puintptr // the p that was attached before executing a syscall
+	id         int64
+	mallocing  int32
+	throwing   int32
+	preemptoff string // if != "", keep curg running on this m
+	locks      int32
+	dying      int32
+	profilehz  int32
+	// 代表M目前没有工作，正在积极寻找工作
 	spinning      bool // m is out of work and is actively looking for work
 	blocked       bool // m is blocked on a note
 	newSigstack   bool // minit on C thread called sigaltstack
@@ -699,7 +702,8 @@ type p struct {
 // 全局的调度器
 type schedt struct {
 	// accessed atomically. keep at top to ensure alignment on 32-bit systems.
-	goidgen   uint64
+	goidgen uint64
+	// 上次netpoll的时间，如果正在poll则为0
 	lastpoll  uint64 // time of last network poll, 0 if currently polling
 	pollUntil uint64 // time to which current poll is sleeping
 
@@ -756,6 +760,7 @@ type schedt struct {
 
 	// freem is the list of m's waiting to be freed when their
 	// m.exited is set. Linked through m.freelink.
+	// 等待被释放的M链表
 	freem *m
 
 	gcwaiting  uint32 // gc is waiting to run
@@ -766,6 +771,7 @@ type schedt struct {
 
 	// safepointFn should be called on each P at the next GC
 	// safepoint if p.runSafePointFn is set.
+	// 如果safePointFn 不为空，那么每次P进入下一次GC安全点时需要执行safePointFn
 	safePointFn   func(*p)
 	safePointWait int32
 	safePointNote note

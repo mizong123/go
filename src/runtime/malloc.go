@@ -7,6 +7,9 @@
 // This was originally based on tcmalloc, but has diverged quite a bit.
 // http://goog-perftools.sourceforge.net/doc/tcmalloc.html
 
+// 主要的高达32kb大小的对象是在页面中被分配的
+// 它们被舍入为大概70个大小的不同的空闲对象集
+// 任何一个空闲的内存页面可以被拆分为一个size的对象集，并且使用bitmap来进行管理
 // The main allocator works in runs of pages.
 // Small allocation sizes (up to and including 32 kB) are
 // rounded to one of about 70 size classes, each of which
@@ -900,7 +903,7 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 // Allocate an object of size bytes.
 // Small objects are allocated from the per-P cache's free lists.
 // Large objects (> 32 kB) are allocated straight from the heap.
-// 内存分配
+// 内存分配,分配指针所使用的方法？？
 func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	if gcphase == _GCmarktermination {
 		throw("mallocgc called with gcphase == _GCmarktermination")
@@ -1325,6 +1328,7 @@ var persistentChunks *notInHeap
 // The returned memory will be zeroed.
 //
 // Consider marking persistentalloc'd types go:notinheap.
+// 在堆外分配
 func persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 	var p *notInHeap
 	systemstack(func() {
@@ -1340,7 +1344,7 @@ func persistentalloc1(size, align uintptr, sysStat *uint64) *notInHeap {
 	const (
 		maxBlock = 64 << 10 // VM reservation granularity is 64K on windows
 	)
-
+	// size和align校验
 	if size == 0 {
 		throw("persistentalloc: size == 0")
 	}
@@ -1354,13 +1358,14 @@ func persistentalloc1(size, align uintptr, sysStat *uint64) *notInHeap {
 	} else {
 		align = 8
 	}
-
+	// 如果大小大于maxblock 直接系统分配内存
 	if size >= maxBlock {
 		return (*notInHeap)(sysAlloc(size, sysStat))
 	}
 
 	mp := acquirem()
 	var persistent *persistentAlloc
+	// 如果当前M绑定着一个P，使用P本地的内存分配器，不然加锁使用全局的内存分配器
 	if mp != nil && mp.p != 0 {
 		persistent = &mp.p.ptr().palloc
 	} else {
@@ -1460,7 +1465,7 @@ func (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
 // possible (like in the allocators).
 //
 // TODO: Use this as the return type of sysAlloc, persistentAlloc, etc?
-//
+// 在堆外分配的内存
 //go:notinheap
 type notInHeap struct{}
 

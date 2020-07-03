@@ -265,6 +265,7 @@ var writeBarrier struct {
 // gcBlackenEnabled is 1 if mutator assists and background mark
 // workers are allowed to blacken objects. This must only be set when
 // gcphase == _GCmark.
+// 如果被允许协助gc标记任务时被置为1
 var gcBlackenEnabled uint32
 
 const (
@@ -672,6 +673,7 @@ func (c *gcControllerState) enlistWorker() {
 
 // findRunnableGCWorker returns the background mark worker for _p_ if it
 // should be run. This must only be called when gcBlackenEnabled != 0.
+// 找到一个可以运行的gc worker for current p
 func (c *gcControllerState) findRunnableGCWorker(_p_ *p) *g {
 	if gcBlackenEnabled == 0 {
 		throw("gcControllerState.findRunnable: blackening not enabled")
@@ -2032,6 +2034,7 @@ func gcBgMarkWorker(_p_ *p) {
 // gcMarkWorkAvailable reports whether executing a mark worker
 // on p is potentially useful. p may be nil, in which case it only
 // checks the global sources of work.
+// 判断当前的p执行gc标记任务是否有效
 func gcMarkWorkAvailable(p *p) bool {
 	if p != nil && !p.gcw.empty() {
 		return true

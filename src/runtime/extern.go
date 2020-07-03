@@ -14,19 +14,25 @@ The following environment variables ($name or %name%, depending on the host
 operating system) control the run-time behavior of Go programs. The meanings
 and use may change from release to release.
 
+
 The GOGC variable sets the initial garbage collection target percentage.
 A collection is triggered when the ratio of freshly allocated data to live data
 remaining after the previous collection reaches this percentage. The default
 is GOGC=100. Setting GOGC=off disables the garbage collector entirely.
 The runtime/debug package's SetGCPercent function allows changing this
 percentage at run time. See https://golang.org/pkg/runtime/debug/#SetGCPercent.
+go gc 设置了垃圾回收的目标百分比，从上一次垃圾回收开始，新分配的数据和系统中现存的数据的比例达到这个百分比，一个新的垃圾回收就会被触发（默认百分之100）
 
+
+debug相关参数
 The GODEBUG variable controls debugging variables within the runtime.
 It is a comma-separated list of name=val pairs setting these named variables:
 
+	// 追踪内存分配和释放
 	allocfreetrace: setting allocfreetrace=1 causes every allocation to be
 	profiled and a stack trace printed on each object's allocation and free.
 
+	// 垃圾回收时以错误的内容破坏对象原先的内容
 	clobberfree: setting clobberfree=1 causes the garbage collector to
 	clobber the memory content of an object with bad content when it frees
 	the object.
@@ -38,26 +44,32 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	expensive checks that should not miss any errors, but will
 	cause your program to run slower.
 
+	// 保证内分配器运行时，会给每个对象分配一个单独的内存页，并且内存地址不会被复用
 	efence: setting efence=1 causes the allocator to run in a mode
 	where each object is allocated on a unique page and addresses are
 	never recycled.
 
+	// 检测gc mark
 	gccheckmark: setting gccheckmark=1 enables verification of the
 	garbage collector's concurrent mark phase by performing a
 	second mark pass while the world is stopped.  If the second
 	pass finds a reachable object that was not found by concurrent
 	mark, the garbage collector will panic.
 
+	// 使得垃圾回收器打印内部并发运行阶段的相关信息
 	gcpacertrace: setting gcpacertrace=1 causes the garbage collector to
 	print information about the internal state of the concurrent pacer.
 
+	// 禁用goroutine stack缩容
 	gcshrinkstackoff: setting gcshrinkstackoff=1 disables moving goroutines
 	onto smaller stacks. In this mode, a goroutine's stack can only grow.
 
+	// 可以禁止并发的垃圾回收 使得每个垃圾回收都是一个stw操作
 	gcstoptheworld: setting gcstoptheworld=1 disables concurrent garbage collection,
 	making every garbage collection a stop-the-world event. Setting gcstoptheworld=2
 	also disables concurrent sweeping after the garbage collection finishes.
 
+	// 设置gctrace = 1 会让每次垃圾回收之后都打印一行这次垃圾回收总归回收的内存大小和暂停的时间
 	gctrace: setting gctrace=1 causes the garbage collector to emit a single line to standard
 	error at each collection, summarizing the amount of memory collected and the
 	length of the pause. The format of this line is subject to change.
@@ -78,27 +90,33 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	If the line ends with "(forced)", this GC was forced by a
 	runtime.GC() call.
 
+	// 修改向kernel返回内存时的调用
 	madvdontneed: setting madvdontneed=1 will use MADV_DONTNEED
 	instead of MADV_FREE on Linux when returning memory to the
 	kernel. This is less efficient, but causes RSS numbers to drop
 	more quickly.
 
+	// 修改内存分析的rate
 	memprofilerate: setting memprofilerate=X will update the value of runtime.MemProfileRate.
 	When set to 0 memory profiling is disabled.  Refer to the description of
 	MemProfileRate for the default value.
 
+	// 在垃圾回收时和栈拷贝时检查是否有无效的指针值，如果有则崩溃（默认）
 	invalidptr: invalidptr=1 (the default) causes the garbage collector and stack
 	copier to crash the program if an invalid pointer value (for example, 1)
 	is found in a pointer-typed location. Setting invalidptr=0 disables this check.
 	This should only be used as a temporary workaround to diagnose buggy code.
 	The real fix is to not store integers in pointer-typed locations.
 
+	// 替换内存分配器策略
 	sbrk: setting sbrk=1 replaces the memory allocator and garbage collector
 	with a trivial allocator that obtains memory from the operating system and
 	never reclaims any memory.
 
+	// 打开scavenger的debug模式
 	scavenge: scavenge=1 enables debugging mode of heap scavenger.
 
+	// 设置为1 goruntime会大致以每次GC一次的频率，在系统中打印返回给操作系统的内存大小以及内存的利用率
 	scavtrace: setting scavtrace=1 causes the runtime to emit a single line to standard
 	error, roughly once per GC cycle, summarizing the amount of work done by the
 	scavenger as well as the total amount of memory returned to the operating system
@@ -113,10 +131,12 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	If the line ends with "(forced)", then scavenging was forced by a
 	debug.FreeOSMemory() call.
 
+	// 打印更加详细的状态
 	scheddetail: setting schedtrace=X and scheddetail=1 causes the scheduler to emit
 	detailed multiline info every X milliseconds, describing state of the scheduler,
 	processors, threads and goroutines.
 
+	// 每x毫秒打印调度器状态
 	schedtrace: setting schedtrace=X causes the scheduler to emit a single line to standard
 	error every X milliseconds, summarizing the scheduler state.
 
@@ -126,6 +146,7 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	IDs will refer to the ID of the goroutine at the time of creation; it's possible for this
 	ID to be reused for another goroutine. Setting N to 0 will report no ancestry information.
 
+	// 禁止基于信号的异步抢占
 	asyncpreemptoff: asyncpreemptoff=1 disables signal-based
 	asynchronous goroutine preemption. This makes some loops
 	non-preemptible for long periods, which may delay GC and
@@ -136,6 +157,7 @@ It is a comma-separated list of name=val pairs setting these named variables:
 The net, net/http, and crypto/tls packages also refer to debugging variables in GODEBUG.
 See the documentation for those packages for details.
 
+// GOMAXPROCS 限制了可以执行用户代码的系统线程的数量
 The GOMAXPROCS variable limits the number of operating system threads that
 can execute user-level Go code simultaneously. There is no limit to the number of threads
 that can be blocked in system calls on behalf of Go code; those do not count against

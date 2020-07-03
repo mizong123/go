@@ -451,7 +451,7 @@ func acquirem() *m {
 }
 
 //go:nosplit
-// 解锁当前m和p
+// 解绑当前m和p
 func releasem(mp *m) {
 	_g_ := getg()
 	mp.locks--

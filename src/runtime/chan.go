@@ -103,12 +103,12 @@ func makechan(t *chantype, size int) *hchan {
 	case elem.ptrdata == 0:
 		// Elements do not contain pointers.
 		// Allocate hchan and buf in one call.
-		// channel中元素包含指针的情况
+		// channel中元素不包含指针的情况，同时分配channel和buffer
 		c = (*hchan)(mallocgc(hchanSize+mem, nil, true))
 		c.buf = add(unsafe.Pointer(c), hchanSize)
 	default:
 		// Elements contain pointers.
-		// channel中元素不包含指针的情况
+		// channel中元素包含指针的情况，channel和buffer分开分配
 		c = new(hchan)
 		c.buf = mallocgc(mem, elem, true)
 	}
@@ -199,7 +199,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	// guarantees forward progress. We rely on the side effects of lock release in
 	// chanrecv() and closechan() to update this thread's view of c.closed and full().
 	// 当channel是非阻塞，如果channel没有准备好接收元素 立即返回
-	// ！这里的判断不能调换顺序！ 会导致判断错误问题
+	// 这里的判断可以调换顺序
 	if !block && c.closed == 0 && full(c) {
 		return false
 	}
@@ -531,7 +531,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 			if raceenabled {
 				raceacquire(c.raceaddr())
 			}
-			// 为准备好接收，将目标地址的元素内存清除
+			// 未准备好接收，将目标地址的元素内存清除
 			if ep != nil {
 				typedmemclr(c.elemtype, ep)
 			}
@@ -564,7 +564,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 		// directly from sender. Otherwise, receive from head of queue
 		// and add sender's value to the tail of the queue (both map to
 		// the same buffer slot because the queue is full).
-		// 找到一个等待发送者，如过buffer为0，直接将值从等待发送者复制到接收者
+		// 找到一个等待发送者，如果buffer为0，直接将值从等待发送者复制到接收者
 		recv(c, sg, ep, func() { unlock(&c.lock) }, 3)
 		return true, true
 	}

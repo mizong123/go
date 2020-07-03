@@ -266,6 +266,7 @@ func forcegchelper() {
 
 // Gosched yields the processor, allowing other goroutines to run. It does not
 // suspend the current goroutine, so execution resumes automatically.
+// 引发一次go的调度，但不挂起当前的G
 func Gosched() {
 	checkTimeouts()
 	mcall(gosched_m)
@@ -624,6 +625,7 @@ func checkmcount() {
 	}
 }
 
+// 初始化M
 func mcommoninit(mp *m) {
 	_g_ := getg()
 
@@ -876,7 +878,9 @@ func casGFromPreempted(gp *g, old, new uint32) bool {
 // stopTheWorld must not be called from a system stack and the caller
 // must not hold worldsema. The caller must call startTheWorld when
 // other P's should resume execution.
-//
+
+// 在GC安全点时打断所有的g并记录理由，返回时，只有当前的g是运行的
+
 // stopTheWorld is safe for multiple goroutines to call at the
 // same time. Each will execute its own stop, and the stops will
 // be serialized.
@@ -887,6 +891,7 @@ func casGFromPreempted(gp *g, old, new uint32) bool {
 func stopTheWorld(reason string) {
 	semacquire(&worldsema)
 	gp := getg()
+	// 保证不被当前m和g不被抢占
 	gp.m.preemptoff = reason
 	systemstack(func() {
 		// Mark the goroutine which called stopTheWorld preemptible so its
@@ -966,6 +971,7 @@ func stopTheWorldWithSema() {
 
 	// If we hold a lock, then we won't be able to stop another M
 	// that is blocked trying to acquire the lock.
+	// 防止死锁
 	if _g_.m.locks > 0 {
 		throw("stopTheWorld: holding locks")
 	}
@@ -973,11 +979,13 @@ func stopTheWorldWithSema() {
 	lock(&sched.lock)
 	sched.stopwait = gomaxprocs
 	atomic.Store(&sched.gcwaiting, 1)
+	// 抢占所有P
 	preemptall()
 	// stop current P
 	_g_.m.p.ptr().status = _Pgcstop // Pgcstop is only diagnostic.
 	sched.stopwait--
 	// try to retake all P's in Psyscall status
+	// 尝试重新获取所有处于系统调用的P的状态
 	for _, p := range allp {
 		s := p.status
 		if s == _Psyscall && atomic.Cas(&p.status, s, _Pgcstop) {
@@ -990,6 +998,7 @@ func stopTheWorldWithSema() {
 		}
 	}
 	// stop idle P's
+	// 停止所有就绪的P
 	for {
 		p := pidleget()
 		if p == nil {
@@ -1002,6 +1011,7 @@ func stopTheWorldWithSema() {
 	unlock(&sched.lock)
 
 	// wait for remaining P's to stop voluntarily
+	// 等待100us 不断尝试抢占所有的P
 	if wait {
 		for {
 			// wait for 100us, then try to re-preempt in case of any races
@@ -1013,6 +1023,7 @@ func stopTheWorldWithSema() {
 		}
 	}
 
+	// 健全性的检查
 	// sanity checks
 	bad := ""
 	if sched.stopwait != 0 {
@@ -1040,6 +1051,7 @@ func stopTheWorldWithSema() {
 func startTheWorldWithSema(emitTraceEvent bool) int64 {
 	mp := acquirem() // disable preemption because it can be holding p in a local var
 	if netpollinited() {
+		// start the world 之前会netpoll寻找一波网络就绪的G 并注入到可运行g队列中
 		list := netpoll(0) // non-blocking
 		injectglist(&list)
 	}
@@ -1061,6 +1073,7 @@ func startTheWorldWithSema(emitTraceEvent bool) int64 {
 	for p1 != nil {
 		p := p1
 		p1 = p1.link.ptr()
+		// 找到P对应的M，绑定nextP并唤醒
 		if p.m != 0 {
 			mp := p.m.ptr()
 			p.m = 0
@@ -1421,6 +1434,7 @@ type cgothreadstart struct {
 // isn't because it borrows _p_.
 //
 //go:yeswritebarrierrec
+// 分配一个M
 func allocm(_p_ *p, fn func()) *m {
 	_g_ := getg()
 	acquirem() // disable GC because it can be called from sysmon
@@ -1430,6 +1444,7 @@ func allocm(_p_ *p, fn func()) *m {
 
 	// Release the free M list. We need to do this somewhere and
 	// this may free up a stack we can use.
+	// 释放等待释放的M列表中的M
 	if sched.freem != nil {
 		lock(&sched.lock)
 		var newList *m
@@ -1900,6 +1915,7 @@ func stopm() {
 
 func mspinning() {
 	// startm's caller incremented nmspinning. Set the new M's spinning.
+	// 设置M为自旋状态
 	getg().m.spinning = true
 }
 
@@ -1909,6 +1925,7 @@ func mspinning() {
 // If spinning is set, the caller has incremented nmspinning and startm will
 // either decrement nmspinning or set m.spinning in the newly started M.
 //go:nowritebarrierrec
+// 找到一个m和p绑定并执行任务
 func startm(_p_ *p, spinning bool) {
 	lock(&sched.lock)
 	if _p_ == nil {
@@ -1925,6 +1942,7 @@ func startm(_p_ *p, spinning bool) {
 			return
 		}
 	}
+	// 获取一个空闲的M
 	mp := mget()
 	unlock(&sched.lock)
 	if mp == nil {
@@ -1933,6 +1951,7 @@ func startm(_p_ *p, spinning bool) {
 			// The caller incremented nmspinning, so set m.spinning in the new M.
 			fn = mspinning
 		}
+		// 如果没有找到空闲的M，则新建一个M
 		newm(fn, _p_)
 		return
 	}
@@ -1953,28 +1972,33 @@ func startm(_p_ *p, spinning bool) {
 
 // Hands off P from syscall or locked M.
 // Always runs without a P, so write barriers are not allowed.
+// 将P从进入系统调用或者被锁的M解绑
 //go:nowritebarrierrec
 func handoffp(_p_ *p) {
 	// handoffp must start an M in any situation where
 	// findrunnable would return a G to run on _p_.
 
 	// if it has local work, start it straight away
+	// 如果当前P本地G队列和全局G队列中还有G需要执行，找到一个空闲的M或者新建一个M去执行这些G
 	if !runqempty(_p_) || sched.runqsize != 0 {
 		startm(_p_, false)
 		return
 	}
 	// if it has GC work, start it straight away
+	// 如果有gc工作，直接开始任务
 	if gcBlackenEnabled != 0 && gcMarkWorkAvailable(_p_) {
 		startm(_p_, false)
 		return
 	}
 	// no local work, check that there are no spinning/idle M's,
 	// otherwise our help is not required
+	// 如果没有工作，并且调度器中没有就绪和自旋的M，绑定P和M并将M置为自旋
 	if atomic.Load(&sched.nmspinning)+atomic.Load(&sched.npidle) == 0 && atomic.Cas(&sched.nmspinning, 0, 1) { // TODO: fast atomic
 		startm(_p_, true)
 		return
 	}
 	lock(&sched.lock)
+	// 如果调度器正在进行gc
 	if sched.gcwaiting != 0 {
 		_p_.status = _Pgcstop
 		sched.stopwait--
@@ -1984,6 +2008,7 @@ func handoffp(_p_ *p) {
 		unlock(&sched.lock)
 		return
 	}
+	// 如果当前p有safepointfunc
 	if _p_.runSafePointFn != 0 && atomic.Cas(&_p_.runSafePointFn, 1, 0) {
 		sched.safePointFn(_p_)
 		sched.safePointWait--
@@ -1991,6 +2016,7 @@ func handoffp(_p_ *p) {
 			notewakeup(&sched.safePointNote)
 		}
 	}
+	// 再次查看全局的就绪G队列
 	if sched.runqsize != 0 {
 		unlock(&sched.lock)
 		startm(_p_, false)
@@ -1998,6 +2024,7 @@ func handoffp(_p_ *p) {
 	}
 	// If this is the last running P and nobody is polling network,
 	// need to wakeup another M to poll network.
+	// 如果当前的P是最后一个运行中的P并且没有其他的P在进行netpoll，需要绑定一个P去执行netpoll
 	if sched.npidle == uint32(gomaxprocs-1) && atomic.Load64(&sched.lastpoll) != 0 {
 		unlock(&sched.lock)
 		startm(_p_, false)
@@ -2073,6 +2100,7 @@ func startlockedm(gp *g) {
 
 // Stops the current m for stopTheWorld.
 // Returns when the world is restarted.
+// 当stw阻塞，直到世界被恢复
 func gcstopm() {
 	_g_ := getg()
 
@@ -2171,11 +2199,13 @@ top:
 	}
 
 	// local runq
+	// 本地队列
 	if gp, inheritTime := runqget(_p_); gp != nil {
 		return gp, inheritTime
 	}
 
 	// global runq
+	// 全局队列
 	if sched.runqsize != 0 {
 		lock(&sched.lock)
 		gp := globrunqget(_p_, 0)
@@ -2192,6 +2222,7 @@ top:
 	// blocked thread (e.g. it has already returned from netpoll, but does
 	// not set lastpoll yet), this thread will do blocking netpoll below
 	// anyway.
+	// 如果netpoll中有等待着并且目前并没有polling
 	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && atomic.Load64(&sched.lastpoll) != 0 {
 		if list := netpoll(0); !list.empty() { // non-blocking
 			gp := list.pop()
@@ -2466,6 +2497,7 @@ func pollWork() bool {
 // wakeNetPoller wakes up the thread sleeping in the network poller,
 // if there is one, and if it isn't going to wake up anyhow before
 // the when argument.
+// 唤醒哪些在netpoll上阻塞的线程
 func wakeNetPoller(when int64) {
 	if atomic.Load64(&sched.lastpoll) == 0 {
 		// In findrunnable we ensure that when polling the pollUntil
@@ -2503,6 +2535,7 @@ func resetspinning() {
 // local run queue.
 // This may temporarily acquire the scheduler lock.
 // Can run concurrently with GC.
+// 将一批G加入系统中的可运行队列 （全局或者p局部）
 func injectglist(glist *gList) {
 	if glist.empty() {
 		return
@@ -2530,6 +2563,7 @@ func injectglist(glist *gList) {
 	q.tail.set(tail)
 	*glist = gList{}
 
+	// 开启就绪的P
 	startIdle := func(n int) {
 		for ; n != 0 && sched.npidle != 0; n-- {
 			startm(nil, false)
@@ -2537,6 +2571,7 @@ func injectglist(glist *gList) {
 	}
 
 	pp := getg().m.p.ptr()
+	// 如果没有当前p，则加入全局队列，并每有一个idle的p执行一次startm
 	if pp == nil {
 		lock(&sched.lock)
 		globrunqputbatch(&q, int32(qsize))
@@ -2548,6 +2583,7 @@ func injectglist(glist *gList) {
 	lock(&sched.lock)
 	npidle := int(sched.npidle)
 	var n int
+	// 每有一个idle的p，加入全局队列
 	for n = 0; n < npidle && !q.empty(); n++ {
 		globrunqput(q.pop())
 	}
@@ -2555,6 +2591,7 @@ func injectglist(glist *gList) {
 	startIdle(n)
 	qsize -= n
 
+	// 如果还有剩余的p，尽可能加入当前的P队列，当前P队列已满则加入全局队列
 	if !q.empty() {
 		runqputbatch(pp, &q, qsize)
 	}
@@ -2562,6 +2599,7 @@ func injectglist(glist *gList) {
 
 // One round of scheduler: find a runnable goroutine and execute it.
 // Never returns.
+// 一轮调度 , 不会返回
 func schedule() {
 	_g_ := getg()
 
@@ -2589,6 +2627,7 @@ top:
 		goto top
 	}
 	if pp.runSafePointFn != 0 {
+		// 执行安全点方法
 		runSafePointFn()
 	}
 
@@ -2599,6 +2638,7 @@ top:
 		throw("schedule: spinning with local work")
 	}
 
+	// 检查timers
 	checkTimers(pp, 0)
 
 	var gp *g
@@ -2624,6 +2664,7 @@ top:
 		// Check the global runnable queue once in a while to ensure fairness.
 		// Otherwise two goroutines can completely occupy the local runqueue
 		// by constantly respawning each other.
+		// 偶尔检查一下全局G队列以免饥饿
 		if _g_.m.p.ptr().schedtick%61 == 0 && sched.runqsize > 0 {
 			lock(&sched.lock)
 			gp = globrunqget(_g_.m.p.ptr(), 1)
@@ -2636,6 +2677,7 @@ top:
 		// if checkTimers added a local goroutine via goready.
 	}
 	if gp == nil {
+		// 阻塞直到找到可运行的g
 		gp, inheritTime = findrunnable() // blocks until work is available
 	}
 
@@ -2701,9 +2743,11 @@ func dropg() {
 // it is always larger than the returned time.
 // We pass now in and out to avoid extra calls of nanotime.
 //go:yeswritebarrierrec
+// 执行当P已经就绪的timer
 func checkTimers(pp *p, now int64) (rnow, pollUntil int64, ran bool) {
 	// If there are no timers to adjust, and the first timer on
 	// the heap is not yet ready to run, then there is nothing to do.
+	// 如果没有timer就绪，则无需做任何操作
 	if atomic.Load(&pp.adjustTimers) == 0 {
 		next := int64(atomic.Load64(&pp.timer0When))
 		if next == 0 {
@@ -2748,6 +2792,8 @@ func checkTimers(pp *p, now int64) (rnow, pollUntil int64, ran bool) {
 	// If this is the local P, and there are a lot of deleted timers,
 	// clear them out. We only do this for the local P to reduce
 	// lock contention on timersLock.
+	// 如果该p是当前g所在的p，并且有很多被删除的timer，则删除他们
+	// 只有在该p是当前g所在p才会这么做以便减少锁的竞争
 	if pp == getg().m.p.ptr() && int(atomic.Load(&pp.deletedTimers)) > len(pp.timers)/4 {
 		clearDeletedTimers(pp)
 	}
@@ -3126,6 +3172,7 @@ func entersyscall_gcwait() {
 
 // The same as entersyscall(), but with a hint that the syscall is blocking.
 //go:nosplit
+// 进入阻塞的系统调用状态
 func entersyscallblock() {
 	_g_ := getg()
 
@@ -3137,6 +3184,7 @@ func entersyscallblock() {
 	_g_.m.p.ptr().syscalltick++
 
 	// Leave SP around for GC and traceback.
+	// 保存g的sp和pc
 	pc := getcallerpc()
 	sp := getcallersp()
 	save(pc, sp)
@@ -3183,7 +3231,7 @@ func entersyscallblock_handoff() {
 // Write barriers are not allowed because our P may have been stolen.
 //
 // This is exported via linkname to assembly in the syscall package.
-//
+// 退出系统调用模式
 //go:nosplit
 //go:nowritebarrierrec
 //go:linkname exitsyscall
@@ -3198,6 +3246,7 @@ func exitsyscall() {
 	_g_.waitsince = 0
 	oldp := _g_.m.oldp.ptr()
 	_g_.m.oldp = 0
+	// 快速退出模式
 	if exitsyscallfast(oldp) {
 		if trace.enabled {
 			if oldp != _g_.m.p.ptr() || _g_.m.syscalltick != _g_.m.p.ptr().syscalltick {
@@ -3270,6 +3319,7 @@ func exitsyscallfast(oldp *p) bool {
 	}
 
 	// Try to re-acquire the last P.
+	// 尝试重新获取上一个P
 	if oldp != nil && oldp.status == _Psyscall && atomic.Cas(&oldp.status, _Psyscall, _Pidle) {
 		// There's a cpu for us, so we can run.
 		wirep(oldp)
@@ -3278,6 +3328,7 @@ func exitsyscallfast(oldp *p) bool {
 	}
 
 	// Try to get any other idle P.
+	// 尝试获取其他就绪的P
 	if sched.pidle != 0 {
 		var ok bool
 		systemstack(func() {
@@ -4281,6 +4332,7 @@ func (pp *p) destroy() {
 // gcworkbufs are not being modified by either the GC or
 // the write barrier code.
 // Returns list of Ps with local work, they need to be scheduled by the caller.
+// 在世界停止时重新定义Ps
 func procresize(nprocs int32) *p {
 	old := gomaxprocs
 	if old < 0 || nprocs <= 0 {
@@ -4399,6 +4451,7 @@ func procresize(nprocs int32) *p {
 // isn't because it immediately acquires _p_.
 //
 //go:yeswritebarrierrec
+// 将p和目前的m绑定
 func acquirep(_p_ *p) {
 	// Do the part that isn't allowed to have write barriers.
 	wirep(_p_)
@@ -4417,7 +4470,7 @@ func acquirep(_p_ *p) {
 // wirep is the first step of acquirep, which actually associates the
 // current M to _p_. This is broken out so we can disallow write
 // barriers for this part, since we don't yet have a P.
-//
+// 将当前M和P绑定
 //go:nowritebarrierrec
 //go:nosplit
 func wirep(_p_ *p) {
@@ -4440,6 +4493,7 @@ func wirep(_p_ *p) {
 }
 
 // Disassociate p and the current m.
+// 解绑P和M
 func releasep() *p {
 	_g_ := getg()
 
@@ -4787,6 +4841,7 @@ func retake(now int64) uint32 {
 // processor just started running it.
 // No locks need to be held.
 // Returns true if preemption request was issued to at least one goroutine.
+// 抢占所有处于running状态的p  尽力而为
 func preemptall() bool {
 	res := false
 	for _, _p_ := range allp {
@@ -4810,6 +4865,7 @@ func preemptall() bool {
 // The actual preemption will happen at some point in the future
 // and will be indicated by the gp->status no longer being
 // Grunning
+// 抢占的单个p，找到当前P运行中的m执行preemptM
 func preemptone(_p_ *p) bool {
 	mp := _p_.m.ptr()
 	if mp == nil || mp == getg().m {
@@ -4947,6 +5003,7 @@ func schedEnableUser(enable bool) {
 
 // schedEnabled reports whether gp should be scheduled. It returns
 // false is scheduling of gp is disabled.
+// 判断调度G是否被允许
 func schedEnabled(gp *g) bool {
 	if sched.disable.user {
 		return isSystemGoroutine(gp, true)
@@ -4957,6 +5014,7 @@ func schedEnabled(gp *g) bool {
 // Put mp on midle list.
 // Sched must be locked.
 // May run during STW, so write barriers are not allowed.
+// 将m放置m就绪列表
 //go:nowritebarrierrec
 func mput(mp *m) {
 	mp.schedlink = sched.midle
@@ -4968,6 +5026,7 @@ func mput(mp *m) {
 // Try to get an m from midle list.
 // Sched must be locked.
 // May run during STW, so write barriers are not allowed.
+// 在获取调度器锁时尝试获取一个空闲的M
 //go:nowritebarrierrec
 func mget() *m {
 	mp := sched.midle.ptr()
@@ -4999,6 +5058,7 @@ func globrunqputhead(gp *g) {
 // Put a batch of runnable goroutines on the global runnable queue.
 // This clears *batch.
 // Sched must be locked.
+// 将batch加入全局g队列
 func globrunqputbatch(batch *gQueue, n int32) {
 	sched.runq.pushBackAll(*batch)
 	sched.runqsize += n
@@ -5050,6 +5110,7 @@ func pidleput(_p_ *p) {
 // Try get a p from _Pidle list.
 // Sched must be locked.
 // May run during STW, so write barriers are not allowed.
+// 在获取调度器锁时获取一个就绪的P
 //go:nowritebarrierrec
 func pidleget() *p {
 	_p_ := sched.pidle.ptr()
@@ -5062,6 +5123,7 @@ func pidleget() *p {
 
 // runqempty reports whether _p_ has no Gs on its local run queue.
 // It never returns true spuriously.
+// 判断当前当前P的本地队列中有没有可执行G
 func runqempty(_p_ *p) bool {
 	// Defend against a race where 1) _p_ has G1 in runqnext but runqhead == runqtail,
 	// 2) runqput on _p_ kicks G1 to the runq, 3) runqget on _p_ empties runqnext.
@@ -5185,6 +5247,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 // If the queue is full, they are put on the global queue; in that case
 // this will temporarily acquire the scheduler lock.
 // Executed only by the owner P.
+// 加入本地p队列，如果本地队列已满加入全局队列
 func runqputbatch(pp *p, q *gQueue, qsize int) {
 	h := atomic.LoadAcq(&pp.runqhead)
 	t := pp.runqtail
@@ -5217,6 +5280,7 @@ func runqputbatch(pp *p, q *gQueue, qsize int) {
 // If inheritTime is true, gp should inherit the remaining time in the
 // current time slice. Otherwise, it should start a new time slice.
 // Executed only by the owner P.
+// 找到p的下一个g
 func runqget(_p_ *p) (gp *g, inheritTime bool) {
 	// If there's a runnext, it's the next G to run.
 	for {

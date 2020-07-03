@@ -5,6 +5,7 @@
 // Implementation of runtime/debug.WriteHeapDump. Writes all
 // objects in the heap plus additional info (roots, threads,
 // finalizers, etc.) to a file.
+// 将堆中所有对象和一些额外信息写入文件
 
 // The format of the dumped file is described at
 // https://golang.org/s/go15heapdump.
@@ -666,8 +667,10 @@ func writeheapdump_m(fd uintptr) {
 	_g_.waitreason = waitReasonDumpingHeap
 
 	// Update stats so we can dump them.
+	// 为了确保所有空闲的内存都在mspan.freelist中 需要flush mcaches to mspan
 	// As a side effect, flushes all the mcaches so the mspan.freelist
 	// lists contain all the free objects.
+
 	updatememstats()
 
 	// Set dump file.

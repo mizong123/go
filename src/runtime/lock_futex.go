@@ -36,7 +36,9 @@ const (
 // mutex_sleeping means that there is presumably at least one sleeping thread.
 // Note that there can be spinning threads during all states - they do not
 // affect mutex's state.
-
+// mutex的状态机有mutex_unlocked mutex_locked mutex_sleeping
+// mutex_sleeping意味着至少有一个睡眠的线程
+// 在任何状态下都会有可能有自旋的线程
 // We use the uintptr mutex.key and note.key as a uint32.
 //go:nosplit
 func key32(p *uintptr) *uint32 {
@@ -56,6 +58,7 @@ func lock2(l *mutex) {
 	gp.m.locks++
 
 	// Speculative grab for lock.
+	// 快速获取锁（减小无竞争条件时候的开销）
 	v := atomic.Xchg(key32(&l.key), mutex_locked)
 	if v == mutex_unlocked {
 		return
@@ -72,6 +75,7 @@ func lock2(l *mutex) {
 
 	// On uniprocessors, no point spinning.
 	// On multiprocessors, spin for ACTIVE_SPIN attempts.
+	// 在多核机器上进行自旋
 	spin := 0
 	if ncpu > 1 {
 		spin = active_spin
@@ -97,6 +101,7 @@ func lock2(l *mutex) {
 			osyield()
 		}
 
+		// 自旋之后仍然未取得锁即进入sleep状态
 		// Sleep.
 		v = atomic.Xchg(key32(&l.key), mutex_sleeping)
 		if v == mutex_unlocked {
