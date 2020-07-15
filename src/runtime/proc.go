@@ -111,6 +111,7 @@ var runtimeInitTime int64
 var initSigmask sigset
 
 // The main goroutine.
+// 主函数
 func main() {
 	g := getg()
 
@@ -121,6 +122,7 @@ func main() {
 	// Max stack size is 1 GB on 64-bit, 250 MB on 32-bit.
 	// Using decimal instead of binary GB and MB because
 	// they look nicer in the stack overflow failure message.
+	// 执行栈最大大小 64位操作系统最大限制1GB，32位限制250MB
 	if sys.PtrSize == 8 {
 		maxstacksize = 1000000000
 	} else {
@@ -148,6 +150,7 @@ func main() {
 		throw("runtime.main not on m0")
 	}
 
+	// 初始化
 	doInit(&runtime_inittask) // must be before defer
 	if nanotime() == 0 {
 		throw("nanotime returning zero")
@@ -163,7 +166,7 @@ func main() {
 
 	// Record when the world started.
 	runtimeInitTime = nanotime()
-
+	// 启动gc
 	gcenable()
 
 	main_init_done = make(chan bool)
@@ -564,7 +567,9 @@ func schedinit() {
 	stackinit()
 	mallocinit()
 	fastrandinit() // must run before mcommoninit
-	mcommoninit(_g_.m)
+
+	mcommoninit(_g_.m) // 初始化allm
+
 	cpuinit()       // must run before alginit
 	alginit()       // maps must not be used before this call
 	modulesinit()   // provides activeModules
@@ -584,6 +589,7 @@ func schedinit() {
 	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
 		procs = n
 	}
+	// 初始化allp
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
 	}
@@ -1776,6 +1782,7 @@ var newmHandoff struct {
 // fn needs to be static and not a heap allocated closure.
 // May run with m.p==nil, so write barriers are not allowed.
 //go:nowritebarrierrec
+// 新建一个M运行fn
 func newm(fn func(), _p_ *p) {
 	mp := allocm(_p_, fn)
 	mp.nextp.set(_p_)
@@ -4526,6 +4533,7 @@ func incidlelocked(v int32) {
 // Check for deadlock situation.
 // The check is based on number of running M's, if 0 -> deadlock.
 // sched.lock must be held.
+// 检查是否有死锁
 func checkdead() {
 	// For -buildmode=c-shared or -buildmode=c-archive it's OK if
 	// there are no running goroutines. The calling program is
@@ -4587,6 +4595,7 @@ func checkdead() {
 	}
 	unlock(&allglock)
 	if grunning == 0 { // possible if main goroutine calls runtime·Goexit()
+		// 如果没有G在跑
 		unlock(&sched.lock) // unlock so that GODEBUG=scheddetail=1 doesn't hang
 		throw("no goroutines (main called runtime.Goexit) - deadlock!")
 	}
@@ -4615,6 +4624,7 @@ func checkdead() {
 	}
 
 	// There are no goroutines running, so we can look at the P's.
+	// 如果所有的p都没有timers
 	for _, _p_ := range allp {
 		if len(_p_.timers) > 0 {
 			return
@@ -4705,6 +4715,7 @@ func sysmon() {
 			asmcgocall(*cgo_yield, nil)
 		}
 		// poll network if not polled for more than 10ms
+		// 如果超过10ms没有netpoll则poll一次
 		lastpoll := int64(atomic.Load64(&sched.lastpoll))
 		if netpollinited() && lastpoll != 0 && lastpoll+10*1000*1000 < now {
 			atomic.Cas64(&sched.lastpoll, uint64(lastpoll), uint64(now))
@@ -4728,18 +4739,21 @@ func sysmon() {
 			// Try to start an M to run them.
 			startm(nil, false)
 		}
+		// 如果需要则唤醒清道夫
 		if atomic.Load(&scavenge.sysmonWake) != 0 {
 			// Kick the scavenger awake if someone requested it.
 			wakeScavenger()
 		}
 		// retake P's blocked in syscalls
 		// and preempt long running G's
+		// 抢占被阻塞在系统调用上的P和运行过久的G
 		if retake(now) != 0 {
 			idle = 0
 		} else {
 			idle++
 		}
 		// check if we need to force a GC
+		// 检查是否需要强制进行一次gc
 		if t := (gcTrigger{kind: gcTriggerTime, now: now}); t.test() && atomic.Load(&forcegc.idle) != 0 {
 			lock(&forcegc.lock)
 			forcegc.idle = 0
@@ -4799,6 +4813,7 @@ func retake(now int64) uint32 {
 			}
 		}
 		if s == _Psyscall {
+			// 如果一个系统调用阻塞超过了20us，则进行抢占
 			// Retake P from syscall if it's there for more than 1 sysmon tick (at least 20us).
 			t := int64(_p_.syscalltick)
 			if !sysretake && int64(pd.syscalltick) != t {

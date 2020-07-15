@@ -83,6 +83,7 @@ type mheap struct {
 	// store. Accesses during STW might not hold the lock, but
 	// must ensure that allocation cannot happen around the
 	// access (since that may free the backing store).
+	// 所有的创建的span
 	allspans []*mspan // all spans out there
 
 	// sweepSpans contains two mspan stacks: one of swept in-use

@@ -22,7 +22,7 @@ import "unsafe"
 // The caller is responsible for locking around FixAlloc calls.
 // Callers can keep state in the object but the first word is
 // smashed by freeing and reallocating.
-//
+// fixalloc 是一个简单的固定大小对象的分配器，fixalloc返回的元素默认返回零值，可以通过zero flag来设置
 // Consider marking fixalloc'd types go:notinheap.
 type fixalloc struct {
 	size   uintptr

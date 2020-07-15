@@ -101,15 +101,19 @@ func newEntry(i interface{}) *entry {
 // The ok result indicates whether value was found in the map.
 func (m *Map) Load(key interface{}) (value interface{}, ok bool) {
 	read, _ := m.read.Load().(readOnly)
+	// 如果read中存在直接返回
 	e, ok := read.m[key]
+	// 如果read中不存在且read中存在dirty中不存在的元素
 	if !ok && read.amended {
 		m.mu.Lock()
 		// Avoid reporting a spurious miss if m.dirty got promoted while we were
 		// blocked on m.mu. (If further loads of the same key will not miss, it's
 		// not worth copying the dirty map for this key.)
+		// double checking
 		read, _ = m.read.Load().(readOnly)
 		e, ok = read.m[key]
 		if !ok && read.amended {
+			// 如果仍然不存在则在dirty中寻找并记录miss
 			e, ok = m.dirty[key]
 			// Regardless of whether the entry was present, record a miss: this key
 			// will take the slow path until the dirty map is promoted to the read
@@ -135,23 +139,30 @@ func (e *entry) load() (value interface{}, ok bool) {
 // Store sets the value for a key.
 func (m *Map) Store(key, value interface{}) {
 	read, _ := m.read.Load().(readOnly)
+	// 如果read中存在直接cas read中的元素，由于是指针 dirty中如果引用此时也相当于被修改了
 	if e, ok := read.m[key]; ok && e.tryStore(&value) {
 		return
 	}
 
 	m.mu.Lock()
 	read, _ = m.read.Load().(readOnly)
+	// double checking
 	if e, ok := read.m[key]; ok {
+		// 如果在read中被标记为被删除 在dirty中记录
 		if e.unexpungeLocked() {
 			// The entry was previously expunged, which implies that there is a
 			// non-nil dirty map and this entry is not in it.
 			m.dirty[key] = e
 		}
+		// cas
 		e.storeLocked(&value)
+		// 在read中不存在，在dirty中存在，直接修改
 	} else if e, ok := m.dirty[key]; ok {
 		e.storeLocked(&value)
 	} else {
+		// 两者都不存在
 		if !read.amended {
+			// 如果read和dirty同步  修改不同步的状态
 			// We're adding the first new key to the dirty map.
 			// Make sure it is allocated and mark the read-only map as incomplete.
 			m.dirtyLocked()

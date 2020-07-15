@@ -19,31 +19,40 @@
 //
 // The allocator's data structures are:
 //
+// 一个可复用的固定大小的堆外内存分配器
 //	fixalloc: a free-list allocator for fixed-size off-heap objects,
 //		used to manage storage used by the allocator.
+//	堆内存，以页面为单位管理
 //	mheap: the malloc heap, managed at page (8192-byte) granularity.
+//  页面的抽象
 //	mspan: a run of in-use pages managed by the mheap.
+//  所有size class的所有span集合
 //	mcentral: collects all spans of a given size class.
+//  每个p的有空闲内存的mspan
 //	mcache: a per-P cache of mspans with free space.
+//  内存分配
 //	mstats: allocation statistics.
 //
 // Allocating a small object proceeds up a hierarchy of caches:
-//
+//	在mcache找到小对象的大小对应的mspan，通过bitmap找到空闲的槽并分配内存，这一过程不需要上锁
 //	1. Round the size up to one of the small size classes
 //	   and look in the corresponding mspan in this P's mcache.
 //	   Scan the mspan's free bitmap to find a free slot.
 //	   If there is a free slot, allocate it.
 //	   This can all be done without acquiring a lock.
 //
+//  如果在mcache中没有空闲的槽，从mcetral的mspan列表中找到对应size class的空闲mspan，这一过程需要上锁
 //	2. If the mspan has no free slots, obtain a new mspan
 //	   from the mcentral's list of mspans of the required size
 //	   class that have free space.
 //	   Obtaining a whole span amortizes the cost of locking
 //	   the mcentral.
 //
+// 	如果mcentral的mspan列表为空，那么从mheap中申请一个页作为mspan
 //	3. If the mcentral's mspan list is empty, obtain a run
 //	   of pages from the mheap to use for the mspan.
 //
+// 	如果mheap为空或者没有足够空闲大小的页面，从操作系统申请一组页面，至少1MB。
 //	4. If the mheap is empty or has no page runs large enough,
 //	   allocate a new group of pages (at least 1MB) from the
 //	   operating system. Allocating a large run of pages
@@ -62,6 +71,7 @@
 //	3. Otherwise, if all objects in the mspan are free, the mspan's
 //	   pages are returned to the mheap and the mspan is now dead.
 //
+// 分配一个大对象直接在mheap上分配
 // Allocating and freeing a large object uses the mheap
 // directly, bypassing the mcache and mcentral.
 //
@@ -326,7 +336,7 @@ const (
 // physPageSize is the size in bytes of the OS's physical pages.
 // Mapping and unmapping operations must be done at multiples of
 // physPageSize.
-//
+// 操作系统物理页面的大小
 // This must be set by the OS init code (typically in osinit) before
 // mallocinit.
 var physPageSize uintptr
@@ -431,6 +441,7 @@ func mallocinit() {
 	}
 
 	// Copy class sizes out for statistics table.
+	// 初始化静态table
 	for i := range class_to_size {
 		memstats.by_size[i].size = uint32(class_to_size[i])
 	}
@@ -480,7 +491,9 @@ func mallocinit() {
 	}
 
 	// Initialize the heap.
+	// 初始化堆
 	mheap_.init()
+	// 分配mcache0
 	mcache0 = allocmcache()
 	lockInit(&gcBitsArenas.lock, lockRankGcBitsArenas)
 	lockInit(&proflock, lockRankProf)
@@ -843,6 +856,7 @@ var zerobase uintptr
 
 // nextFreeFast returns the next free object if one is quickly available.
 // Otherwise it returns 0.
+// 快速返回span中下一个空闲的内存
 func nextFreeFast(s *mspan) gclinkptr {
 	theBit := sys.Ctz64(s.allocCache) // Is there a free object in the allocCache?
 	if theBit < 64 {
@@ -903,7 +917,7 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 // Allocate an object of size bytes.
 // Small objects are allocated from the per-P cache's free lists.
 // Large objects (> 32 kB) are allocated straight from the heap.
-// 内存分配,分配指针所使用的方法？？
+// 内存分配
 func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	if gcphase == _GCmarktermination {
 		throw("mallocgc called with gcphase == _GCmarktermination")
