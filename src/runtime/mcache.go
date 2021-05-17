@@ -20,7 +20,7 @@ type mcache struct {
 	// The following members are accessed on every malloc,
 	// so they are grouped here for better caching.
 	next_sample uintptr // trigger heap sample after allocating this many bytes
-	local_scan  uintptr // bytes of scannable heap allocated
+	local_scan  uintptr // 分配的可扫描堆的字节数
 
 	// Allocator cache for tiny objects w/o pointers.
 	// See "Tiny allocator" comment in malloc.go.
@@ -33,7 +33,7 @@ type mcache struct {
 	// termination.
 	tiny             uintptr
 	tinyoffset       uintptr
-	local_tinyallocs uintptr // number of tiny allocs not counted in other stats
+	local_tinyallocs uintptr // 极小对象分配的数量
 
 	// The rest is not accessed on every malloc.
 

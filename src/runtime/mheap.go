@@ -714,6 +714,7 @@ func pageIndexOf(p uintptr) (arena *heapArena, pageIdx uintptr, pageMask uint8) 
 }
 
 // Initialize the heap.
+// 初始化堆
 func (h *mheap) init() {
 	lockInit(&h.lock, lockRankMheap)
 	lockInit(&h.sweepSpans[0].spineLock, lockRankSpine)
@@ -902,6 +903,7 @@ func (h *mheap) alloc(npages uintptr, spanclass spanClass, needzero bool) *mspan
 	systemstack(func() {
 		// To prevent excessive heap growth, before allocating n pages
 		// we need to sweep and reclaim at least n pages.
+		// 为了防止堆过度增长，在分配n页之前先回收n页
 		if h.sweepdone == 0 {
 			h.reclaim(npages)
 		}
@@ -1114,8 +1116,8 @@ func (h *mheap) allocSpan(npages uintptr, manual bool, spanclass spanClass, sysS
 	gp := getg()
 	base, scav := uintptr(0), uintptr(0)
 
-	// If the allocation is small enough, try the page cache!
 	pp := gp.m.p.ptr()
+	// 如果需要分配的page比较小，尝试从page cache中申请内存
 	if pp != nil && npages < pageCachePages/4 {
 		c := &pp.pcache
 
@@ -1152,16 +1154,19 @@ func (h *mheap) allocSpan(npages uintptr, manual bool, spanclass spanClass, sysS
 
 	// For one reason or another, we couldn't get the
 	// whole job done without the heap lock.
+	// heap lock
 	lock(&h.lock)
-
+	// 没从pageCache中获取内存时
 	if base == 0 {
-		// Try to acquire a base address.
+		// 尝试获取npage大小的内存
 		base, scav = h.pages.alloc(npages)
+		// 获取失败 对堆进行扩容
 		if base == 0 {
 			if !h.grow(npages) {
 				unlock(&h.lock)
 				return nil
 			}
+			// 再次尝试申请内存
 			base, scav = h.pages.alloc(npages)
 			if base == 0 {
 				throw("grew heap, but no adequate free space found")
@@ -1208,9 +1213,12 @@ func (h *mheap) allocSpan(npages uintptr, manual bool, spanclass spanClass, sysS
 	}
 	unlock(&h.lock)
 
+	// 获取到了span
 HaveSpan:
 	// At this point, both s != nil and base != 0, and the heap
 	// lock is no longer held. Initialize the span.
+
+	// 初始化
 	s.init(base, npages)
 	if h.allocNeedsZero(base, npages) {
 		s.needzero = 1
@@ -1288,6 +1296,8 @@ HaveSpan:
 	// this thread until pointers into the span are published (and
 	// we execute a publication barrier at the end of this function
 	// before that happens) or pageInUse is updated.
+
+	// 设置mspan与mheap的关系
 	h.setSpans(s.base(), npages, s)
 
 	if !manual {
@@ -1338,6 +1348,8 @@ func (h *mheap) grow(npage uintptr) bool {
 	// and is otherwise unrelated to h.curArena.base.
 	end := h.curArena.base + ask
 	nBase := alignUp(end, physPageSize)
+
+	// 如果此时heap中的内存也不够了
 	if nBase > h.curArena.end || /* overflow */ end < h.curArena.base {
 		// Not enough room in the current arena. Allocate more
 		// arena space. This may not be contiguous with the

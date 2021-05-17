@@ -4339,7 +4339,7 @@ func (pp *p) destroy() {
 // gcworkbufs are not being modified by either the GC or
 // the write barrier code.
 // Returns list of Ps with local work, they need to be scheduled by the caller.
-// 在世界停止时重新定义Ps
+
 func procresize(nprocs int32) *p {
 	old := gomaxprocs
 	if old < 0 || nprocs <= 0 {

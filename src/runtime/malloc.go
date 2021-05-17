@@ -889,11 +889,12 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 	shouldhelpgc = false
 	freeIndex := s.nextFreeIndex()
 	if freeIndex == s.nelems {
-		// The span is full.
+		// span已满
 		if uintptr(s.allocCount) != s.nelems {
 			println("runtime: s.allocCount=", s.allocCount, "s.nelems=", s.nelems)
 			throw("s.allocCount != s.nelems && freeIndex == s.nelems")
 		}
+		// 从mcentral中获取新的mspan 并替换至mcache
 		c.refill(spc)
 		shouldhelpgc = true
 		s = c.alloc[spc]
@@ -923,6 +924,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		throw("mallocgc called with gcphase == _GCmarktermination")
 	}
 
+	// size为0的对象 例如空结构体 fastpath
 	if size == 0 {
 		return unsafe.Pointer(&zerobase)
 	}
@@ -953,6 +955,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	// assistG is the G to charge for this allocation, or nil if
 	// GC is not currently active.
 	var assistG *g
+	// 判断当前是否正在处于gc标记阶段
 	if gcBlackenEnabled != 0 {
 		// Charge the current user G for this allocation.
 		assistG = getg()
@@ -961,17 +964,20 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		}
 		// Charge the allocation against the G. We'll account
 		// for internal fragmentation at the end of mallocgc.
+		// 扣除当前g的内存分配信用
 		assistG.gcAssistBytes -= int64(size)
-
+		// 如果当前g已经负债，则需要帮助gc标记
 		if assistG.gcAssistBytes < 0 {
 			// This G is in debt. Assist the GC to correct
 			// this before allocating. This must happen
 			// before disabling preemption.
+			// todo 看懂它
 			gcAssistAlloc(assistG)
 		}
 	}
 
 	// Set mp.mallocing to keep from being preempted by GC.
+	// 标记当前m正在处于内存分配状态
 	mp := acquirem()
 	if mp.mallocing != 0 {
 		throw("malloc deadlock")
@@ -987,6 +993,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	if mp.p != 0 {
 		c = mp.p.ptr().mcache
 	} else {
+		// 自举使用
 		// We will be called without a P while bootstrapping,
 		// in which case we use mcache0, which is set in mallocinit.
 		// mcache0 is cleared when bootstrapping is complete,
@@ -998,9 +1005,13 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	}
 	var span *mspan
 	var x unsafe.Pointer
+	// 是否包含指针
 	noscan := typ == nil || typ.ptrdata == 0
+
 	if size <= maxSmallSize {
+		// 小对象
 		if noscan && size < maxTinySize {
+			// 微对象
 			// Tiny allocator.
 			//
 			// Tiny allocator combines several tiny allocation requests
@@ -1032,6 +1043,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			// reduces heap size by ~20%.
 			off := c.tinyoffset
 			// Align tiny pointer for required (conservative) alignment.
+			// 内存对齐
 			if size&7 == 0 {
 				off = alignUp(off, 8)
 			} else if size&3 == 0 {
@@ -1040,7 +1052,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 				off = alignUp(off, 2)
 			}
 			if off+size <= maxTinySize && c.tiny != 0 {
-				// The object fits into existing tiny block.
+				// 不是chunk中第一个微小对象时
 				x = unsafe.Pointer(c.tiny + off)
 				c.tinyoffset = off + size
 				c.local_tinyallocs++
@@ -1055,10 +1067,12 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 				v, span, shouldhelpgc = c.nextFree(tinySpanClass)
 			}
 			x = unsafe.Pointer(v)
+			// 对象头？？
 			(*[2]uint64)(x)[0] = 0
 			(*[2]uint64)(x)[1] = 0
 			// See if we need to replace the existing tiny block with the new one
 			// based on amount of remaining free space.
+			// 记录状态 为下一次微小对象分配作准备
 			if size < c.tinyoffset || c.tiny == 0 {
 				c.tiny = uintptr(x)
 				c.tinyoffset = size
@@ -1073,9 +1087,12 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			}
 			size = uintptr(class_to_size[sizeclass])
 			spc := makeSpanClass(sizeclass, noscan)
+			// 计算spanclass 找到mcache中对应span
 			span = c.alloc[spc]
+			// 快速分配一个对象
 			v := nextFreeFast(span)
 			if v == 0 {
+				// mcache分配失败 从mentral分配内存
 				v, span, shouldhelpgc = c.nextFree(spc)
 			}
 			x = unsafe.Pointer(v)
@@ -1084,6 +1101,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			}
 		}
 	} else {
+		// 大对象
 		shouldhelpgc = true
 		systemstack(func() {
 			span = largeAlloc(size, needzero, noscan)
@@ -1093,8 +1111,9 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 		x = unsafe.Pointer(span.base())
 		size = span.elemsize
 	}
-
+	// 至此获得分配的对象的内存地址
 	var scanSize uintptr
+	// 需要扫描的（包含指针）
 	if !noscan {
 		// If allocating a defer+arg block, now that we've picked a malloc size
 		// large enough to hold everything, cut the "asked for" size down to
@@ -1181,6 +1200,7 @@ func largeAlloc(size uintptr, needzero bool, noscan bool) *mspan {
 	if size+_PageSize < size {
 		throw("out of memory")
 	}
+	// 计算需要分配的页数
 	npages := size >> _PageShift
 	if size&_PageMask != 0 {
 		npages++
@@ -1192,6 +1212,7 @@ func largeAlloc(size uintptr, needzero bool, noscan bool) *mspan {
 	deductSweepCredit(npages*_PageSize, npages)
 
 	spc := makeSpanClass(0, noscan)
+	// 从堆上分配
 	s := mheap_.alloc(npages, spc, needzero)
 	if s == nil {
 		throw("out of memory")
@@ -1209,6 +1230,8 @@ func largeAlloc(size uintptr, needzero bool, noscan bool) *mspan {
 // implementation of new builtin
 // compiler (both frontend and SSA backend) knows the signature
 // of this function
+// new的编译器内敛函数
+// 分配内存对象的唯一入口
 func newobject(typ *_type) unsafe.Pointer {
 	return mallocgc(typ.size, typ, true)
 }

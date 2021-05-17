@@ -67,6 +67,7 @@ func (f *fixalloc) alloc() unsafe.Pointer {
 		throw("runtime: internal error")
 	}
 
+	// 有可以复用的缓存
 	if f.list != nil {
 		v := unsafe.Pointer(f.list)
 		f.list = f.list.next
