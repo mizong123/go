@@ -971,13 +971,12 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			// This G is in debt. Assist the GC to correct
 			// this before allocating. This must happen
 			// before disabling preemption.
-			// todo 看懂它
 			gcAssistAlloc(assistG)
 		}
 	}
 
 	// Set mp.mallocing to keep from being preempted by GC.
-	// 标记当前m正在处于内存分配状态
+	// 标记当前m正在处于内存分配状态 并设置为不可抢占
 	mp := acquirem()
 	if mp.mallocing != 0 {
 		throw("malloc deadlock")
