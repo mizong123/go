@@ -920,6 +920,7 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 // Large objects (> 32 kB) are allocated straight from the heap.
 // 内存分配
 func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
+	// _GCmarktermination为stw阶段
 	if gcphase == _GCmarktermination {
 		throw("mallocgc called with gcphase == _GCmarktermination")
 	}
