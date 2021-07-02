@@ -43,8 +43,8 @@ type mcentral struct {
 	// to the appropriate swept list. As a result, the parts of the
 	// sweeper and mcentral that do consume from the unswept list may
 	// encounter swept spans, and these should be ignored.
-	partial [2]spanSet // list of spans with a free object
-	full    [2]spanSet // list of spans with no free objects
+	partial [2]spanSet // list of spans with a free object // 空闲
+	full    [2]spanSet // list of spans with no free objects // 非空闲
 
 	// nmalloc is the cumulative count of objects allocated from
 	// this mcentral, assuming all spans in mcaches are
@@ -97,6 +97,7 @@ func (c *mcentral) cacheSpan() *mspan {
 		return c.oldCacheSpan()
 	}
 	// Deduct credit for this span allocation and sweep if necessary.
+	// 获取span的大小
 	spanBytes := uintptr(class_to_allocnpages[c.spanclass.sizeclass()]) * _PageSize
 	deductSweepCredit(spanBytes, 0)
 
@@ -180,6 +181,7 @@ func (c *mcentral) cacheSpan() *mspan {
 	}
 
 	// At this point s is a span that should have free slots.
+	// 获取到了span 对span的一些字段做状态修正
 havespan:
 	if trace.enabled && !traceDone {
 		traceGCSweepDone()
@@ -343,6 +345,7 @@ func (c *mcentral) uncacheSpan(s *mspan) {
 	stale := s.sweepgen == sg+1
 
 	// Fix up sweepgen.
+	// 修复mspan的sweepgen
 	if stale {
 		// Span was cached before sweep began. It's our
 		// responsibility to sweep it.
@@ -378,6 +381,7 @@ func (c *mcentral) uncacheSpan(s *mspan) {
 	}
 
 	// Put the span in the appropriate place.
+	// 将span放置合适的地方
 	if stale {
 		// It's stale, so just sweep it. Sweeping will put it on
 		// the right list.

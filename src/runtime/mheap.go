@@ -68,6 +68,7 @@ type mheap struct {
 	// could self-deadlock if its stack grows with the lock held.
 	lock      mutex
 	pages     pageAlloc // page allocation data structure
+	// 与gc挂钩的变量
 	sweepgen  uint32    // sweep generation, see comment in mspan; written during STW
 	sweepdone uint32    // all spans are swept
 	sweepers  uint32    // number of active sweepone calls
@@ -470,7 +471,11 @@ type mspan struct {
 	// if sweepgen == h->sweepgen + 1, the span was cached before sweep began and is still cached, and needs sweeping
 	// if sweepgen == h->sweepgen + 3, the span was swept and then cached and is still cached
 	// h->sweepgen is incremented by 2 after every GC
-
+	// mspan.sweepgen == heap.sweepgen-2 代表还未被清扫
+	// mspan.sweepgen == heap.sweepgen-1 表示正在被清扫
+	// mspan.sweepgen == heap.sweepgen 表示已经被清扫可以被使用
+	// mspan.sweepgen == heap.sweepgen+1 代表span在清扫之前已经被使用了并且需要扫描
+	// mspan.sweepgen == heap.sweepgen+3 代表span已经被清扫了并且被使用
 	sweepgen    uint32
 	divMul      uint16        // for divide by elemsize - divMagic.mul
 	baseMask    uint16        // if non-0, elemsize is a power of 2, & this will get object allocation base

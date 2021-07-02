@@ -926,6 +926,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	}
 
 	// size为0的对象 例如空结构体 fastpath
+	// map[int]struct{}
 	if size == 0 {
 		return unsafe.Pointer(&zerobase)
 	}
@@ -987,13 +988,14 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	}
 	mp.mallocing = 1
 
+	// 是否需要帮助gc
 	shouldhelpgc := false
 	dataSize := size
 	var c *mcache
 	if mp.p != 0 {
 		c = mp.p.ptr().mcache
 	} else {
-		// 自举使用
+		// 自举使用 bootstrap才会用到
 		// We will be called without a P while bootstrapping,
 		// in which case we use mcache0, which is set in mallocinit.
 		// mcache0 is cleared when bootstrapping is complete,
@@ -1005,7 +1007,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	}
 	var span *mspan
 	var x unsafe.Pointer
-	// 是否包含指针
+	// 是否包含指针（代表是否需要gc扫描）
 	noscan := typ == nil || typ.ptrdata == 0
 
 	if size <= maxSmallSize {
@@ -1085,9 +1087,10 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			} else {
 				sizeclass = size_to_class128[divRoundUp(size-smallSizeMax, largeSizeDiv)]
 			}
+			// 通过映射获取到真正分配的内存大小
 			size = uintptr(class_to_size[sizeclass])
 			spc := makeSpanClass(sizeclass, noscan)
-			// 计算spanclass 找到mcache中对应span
+			// 通过真正分配的内存大小+是否需要gc扫描算出真正的spanclass 并获取到对应的mspan
 			span = c.alloc[spc]
 			// 快速分配一个对象
 			v := nextFreeFast(span)
@@ -1096,6 +1099,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 				v, span, shouldhelpgc = c.nextFree(spc)
 			}
 			x = unsafe.Pointer(v)
+			// 清除内存
 			if needzero && span.needzero != 0 {
 				memclrNoHeapPointers(unsafe.Pointer(v), size)
 			}
@@ -1211,6 +1215,7 @@ func largeAlloc(size uintptr, needzero bool, noscan bool) *mspan {
 	// pays the debt down to npage pages.
 	deductSweepCredit(npages*_PageSize, npages)
 
+	// sizeclass为0
 	spc := makeSpanClass(0, noscan)
 	// 从堆上分配
 	s := mheap_.alloc(npages, spc, needzero)
